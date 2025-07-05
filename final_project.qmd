@@ -257,7 +257,7 @@ fig_map_internet.show()
 
 # Life Expectancy Analysis
 
-## row{height="5%"}
+## row{height="10%"}
 
 This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.
 
@@ -293,7 +293,7 @@ print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
 
 :::
 
-## row{height="45%"}
+## row{height="40%"}
 
 ### column {width="60%"}
 
@@ -323,6 +323,8 @@ fig_hist_le.show()
 
 ## row{height="30%"}
 
+### column{width="60%"}
+
 ```{python}
 #| tbl-height: 400
 
@@ -339,7 +341,7 @@ else:
     print("No data for life expectancy extremes by continent.")
 ```
 
-## row {height="5%"}
+### column{width="40%"}
 
 **Key observations**
 
@@ -347,7 +349,7 @@ From 1990 to 2000, Africa consistently showed the lowest average life expectancy
 
 # Internet Users Analysis
 
-## row {height="5%"}
+## row {height="10%"}
 
 This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.
 
@@ -416,6 +418,8 @@ fig_bar_internet.show()
 
 ## row{height="30%"}
 
+### column{width="60%"}
+
 ```{python}
 #| tbl-height: 400
 
@@ -432,7 +436,7 @@ else:
     print("No data for internet users extremes by continent.")
 ```
 
-## row{height="5%"}
+### column{width="40%"}
 
 **Key observation**
 
@@ -445,6 +449,8 @@ From 1990 to 2000, all continents experienced growth in internet users, though A
 This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`.
 
 ## row{height="80%"}
+
+### column{width="70%"}
 
 ```{python}
 #| fig-height: 600
@@ -476,7 +482,7 @@ if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.upd
 fig_rel_scatter.show()
 ```
 
-## row {height="10%"}
+### column{width="30%"}
 
 **Key observation**
 
