@@ -215,7 +215,7 @@ print(f"{avg_internet_period:.2f}%")
 
 :::
 
-## row
+## row 
 
 ### Column{width="50%"}
 
@@ -257,9 +257,11 @@ fig_map_internet.show()
 
 # Life Expectancy Analysis
 
+## row{height="10%"}
+
 This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.
 
-## Row
+## Row{height="20%"}
 
 ::: {.valuebox title="Highest Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="arrow-up-circle-fill"}
 
@@ -291,7 +293,7 @@ print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
 
 :::
 
-## row 
+## row{height="30%"}
 
 ### column {width="60%"}
 
@@ -319,7 +321,7 @@ fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']
 fig_hist_le.show()
 ```
 
-## row 
+## row{height="30%"}
 
 ```{python}
 #| tbl-height: 400
@@ -337,7 +339,7 @@ else:
     print("No data for life expectancy extremes by continent.")
 ```
 
-## row 
+## row {height="10%"}
 
 **Key observations**
 
