@@ -1,0 +1,475 @@
+---
+title: "Global Development Indicators Dashboard (1990-2000)" # Updated Title
+format:
+  dashboard:
+    orientation: rows
+    theme: cosmo # A clean and modern theme
+---
+
+```{python}
+#| echo: false
+#| message: false
+#| warning: false
+#| results: as-is # Crucial for printing dynamic text into markdown
+
+import pandas as pd
+import country_converter as cc
+import numpy as np
+import plotly.express as px
+
+# --- Configuration ---
+START_YEAR = 1990
+END_YEAR = 2000
+TARGET_YEARS = list(range(START_YEAR, END_YEAR + 1))
+
+# --- Helper Function for Numeric String Conversion ---
+def parse_numeric_string(value):
+    """
+    Converts numerical strings like '1.3B', '2.5M', or '1.5K' to numeric values.
+    Handles None, NaN, and already numeric values gracefully.
+    """
+    if pd.isna(value) or not isinstance(value, str):
+        return value
+
+    value = value.strip()
+
+    if value.endswith('B'):
+        return float(value[:-1]) * 1_000_000_000
+    elif value.endswith('M'):
+        return float(value[:-1]) * 1_000_000
+    elif value.endswith('K'):
+        return float(value[:-1]) * 1_000
+    else:
+        try:
+            return float(value)
+        except ValueError:
+            return np.nan
+
+# --- Data Loading and Processing Function ---
+def load_and_process_gapminder_data(start_year, end_year):
+    """
+    Loads Gapminder CSV files, melts them to long format, standardizes
+    country names to ISO3, merges all indicators, adds a continent column,
+    and filters for target years.
+    """
+    custom_country_mappings = {
+        'East Germany': 'Germany', 'West Germany': 'Germany', 'USSR': 'Russia',
+        'Yugoslavia': 'Serbia', 'Netherlands Antilles': 'Netherlands',
+        'UAE': 'United Arab Emirates', 'United Arab Emirates': 'United Arab Emirates'
+    }
+
+    data_file_paths = {
+        "pop": 'data/pop.csv',
+        "life_exp": 'data/lex.csv',
+        "gdp_per_capita": 'data/gdp_pcap.csv',
+        "internet_users": 'data/internet_users.csv',
+        "child_mortality": 'data/child_mortality_0_5_year_olds_dying_per_1000_born.csv',
+        "infant_mortality": 'data/infant_mortality_rate_per_1000_births.csv',
+        "fertility_rate": 'data/children_per_woman_total_fertility.csv',
+        "literacy_rate": 'data/literacy_rate_youth_total_percent_of_people_ages_15_24.csv',
+        "education_expenditure": "data/se_xpd_ctot_zs.csv"
+    }
+
+    melted_dataframes = {}
+    for indicator_name, filepath in data_file_paths.items():
+        try:
+            df = pd.read_csv(filepath)
+            country_col_name = df.columns[0]
+            df[country_col_name] = df[country_col_name].replace(custom_country_mappings)
+
+            melted_df = df.melt(
+                id_vars=country_col_name,
+                var_name="year",
+                value_name=indicator_name
+            ).sort_values([country_col_name, "year"])
+
+            melted_df['year'] = pd.to_numeric(melted_df['year'].astype(str).str.replace('geo_', ''), errors='coerce')
+            melted_df.dropna(subset=['year'], inplace=True)
+            melted_df['year'] = melted_df['year'].astype(int)
+
+            melted_df['iso_alpha'] = cc.convert(names=melted_df[country_col_name], to='ISO3', not_found=None)
+            melted_df = melted_df.rename(columns={country_col_name: 'country'})
+            melted_df.dropna(subset=['iso_alpha', indicator_name], inplace=True)
+
+            melted_dataframes[indicator_name] = melted_df[['country', 'year', 'iso_alpha', indicator_name]]
+        except FileNotFoundError:
+            print(f"Warning: File not found at {filepath}. Skipping {indicator_name}.")
+            melted_dataframes[indicator_name] = pd.DataFrame()
+
+    if 'pop' not in melted_dataframes or melted_dataframes['pop'].empty:
+        print("Error: Population data is essential and not loaded. Returning empty DataFrame.")
+        return pd.DataFrame()
+
+    merged_data = melted_dataframes['pop'].copy()
+    merge_cols = ['country', 'year', 'iso_alpha']
+
+    for indicator_name, df_to_merge in melted_dataframes.items():
+        if indicator_name == 'pop':
+            continue
+        if not df_to_merge.empty:
+            merged_data = pd.merge(merged_data, df_to_merge, on=merge_cols, how='outer')
+
+    merged_data['year'] = merged_data['year'].astype(int, errors='ignore')
+    merged_data.dropna(subset=['iso_alpha', 'year'], inplace=True)
+
+    numeric_indicator_cols = [col for col in data_file_paths.keys() if col in merged_data.columns]
+    for col in numeric_indicator_cols:
+        merged_data[col] = merged_data[col].astype(str).apply(parse_numeric_string)
+
+    merged_data['continent'] = cc.convert(names=merged_data['country'], to='continent')
+    merged_data.dropna(subset=['continent'], inplace=True)
+
+    merged_data_filtered = merged_data[
+        (merged_data['year'] >= start_year) &
+        (merged_data['year'] <= end_year)
+    ].copy()
+
+    return merged_data_filtered
+
+# --- Execute Data Loading and Processing ---
+df_gap_full = load_and_process_gapminder_data(START_YEAR, END_YEAR)
+
+df_continent_avg = df_gap_full.groupby(['continent', 'year']).agg(
+    life_exp=('life_exp', 'mean'),
+    gdp_per_capita=('gdp_per_capita', 'mean'),
+    internet_users=('internet_users', 'mean'),
+    child_mortality=('child_mortality', 'mean'),
+    infant_mortality=('infant_mortality', 'mean'),
+    fertility_rate=('fertility_rate', 'mean'),
+    literacy_rate=('literacy_rate', 'mean'),
+    education_expenditure=('education_expenditure', 'mean'),
+    pop=('pop', 'mean')
+).reset_index()
+
+representative_latest_year = df_continent_avg['year'].max() if not df_continent_avg.empty else END_YEAR
+representative_latest_data = df_continent_avg[df_continent_avg['year'] == representative_latest_year].copy()
+
+# NEW/MODIFIED: Prepare data for choropleth map to show COUNTRY-LEVEL data
+# We just need the original df_gap_full filtered for the latest year.
+df_map_data_latest_year_country = df_gap_full[df_gap_full['year'] == representative_latest_year].copy()
+
+
+# Calculate overall statistics for value boxes
+avg_life_exp_period = df_continent_avg['life_exp'].mean()
+avg_child_mort_period = df_continent_avg['child_mortality'].mean()
+avg_gdp_pcap_period = df_continent_avg['gdp_per_capita'].mean()
+total_pop_period = df_gap_full['pop'].sum()
+avg_lit_period = df_continent_avg['literacy_rate'].mean()
+avg_internet_period = df_continent_avg['internet_users'].mean()
+avg_edu_exp_period = df_continent_avg['education_expenditure'].mean()
+
+# Dynamic text for titles
+period_str = f"{START_YEAR}-{END_YEAR}"
+latest_year_str = str(representative_latest_year)
+selected_region_str = "Global Continents" # This still applies to the line/scatter plots
+```
+
+# Home: Global Continent Development Overview
+
+Welcome to the Global Continent Development Indicators Dashboard! This dashboard provides an interactive exploration of key development metrics for all major continents during the period of `{python} period_str`.
+
+Key Development Summaries for Global Continents (Averages for `{python} period_str`)
+
+## row
+
+::: {.valuebox title="Average Life Expectancy" color="#2ECC71" icon="heart-pulse"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_life_exp_period:.2f} years")
+```
+
+:::
+
+::: {.valuebox title="Average Child Mortality" color="#7F8C8D" icon="emoji-tear-fill"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_child_mort_period:.2f} per 1000")
+```
+
+:::
+
+::: {.valuebox title="Average GDP per Capita" color="#FFD700" icon="cash-coin"}
+
+```{python}
+#| content: valuebox
+print(f"${avg_gdp_pcap_period:,.0f}")
+```
+
+:::
+
+::: {.valuebox title="Total Population (Summed)" color="#3498DB" icon="people-fill"}
+
+```{python}
+#| content: valuebox
+if pd.isna(total_pop_period):
+    print("N/A")
+else:
+    print(f"{total_pop_period:,.0f}")
+```
+
+:::
+
+::: {.valuebox title="Average Youth Literacy Rate" color="#27AE60" icon="book"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_lit_period:.2f}%")
+```
+
+:::
+
+::: {.valuebox title="Average Internet Users" color="#9B59B6" icon="wifi"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_internet_period:.2f}%")
+```
+
+:::
+
+## row
+
+```{python}
+#| label: global-overview-plot
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-height: 400
+
+# Use df_continent_avg for continent-level plots
+fig_gdp_le = px.scatter(df_continent_avg.dropna(subset=['gdp_per_capita', 'life_exp', 'pop']),
+                        x="gdp_per_capita",
+                        y="life_exp",
+                        size="pop", # Now represents average continent population per year
+                        color="continent", # Color by continent
+                        hover_name="continent",
+                        animation_frame="year",
+                        animation_group="continent",
+                        log_x=True,
+                        size_max=60,
+                        title=f"Average GDP per Capita vs. Life Expectancy for {selected_region_str} ({period_str})",
+                        labels={"gdp_per_capita": "Average GDP per Capita (USD)", "life_exp": "Average Life Expectancy (Years)"})
+
+fig_gdp_le.layout.updatemenus[0].buttons[0].args[1]['frame']['duration'] = 1500
+fig_gdp_le.layout.updatemenus[0].buttons[0].args[1]['transition']['duration'] = 500
+
+fig_gdp_le.show()
+```
+
+# Life Expectancy Analysis
+
+This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.
+
+## row 
+
+::: {.valuebox title="Average Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="clipboard2-pulse"}
+
+```{python}
+#| content: valuebox
+# Use representative_latest_data which is already for continent averages and max year
+print(f"{round(representative_latest_data['life_exp'].mean(), 1)} years")
+```
+
+:::
+
+## row 
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 350
+# Use df_continent_avg
+fig_line_le = px.line(df_continent_avg.dropna(subset=['life_exp']),
+                      x='year',
+                      y='life_exp',
+                      color='continent', # Color by continent
+                      title=f'Average Life Expectancy Over Time for {selected_region_str} ({period_str})',
+                      labels={'life_exp': 'Average Life Expectancy (Years)'})
+fig_line_le.show()
+```
+
+### column {width="40%"}
+
+```{python}
+#| fig-height: 350
+# Use representative_latest_data for the histogram (now showing continent distribution)
+fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']), x='life_exp',
+                           nbins=len(representative_latest_data['continent'].unique()) if not representative_latest_data.empty else 10, # Adjust nbins dynamically
+                           title=f'Distribution of Average Life Expectancy in {selected_region_str} (Year {latest_year_str})',
+                           labels={'life_exp': 'Average Life Expectancy (Years)'})
+fig_hist_le.show()
+```
+
+## row 
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 450
+# Choropleth map: Countries colored by their EXACT country-level life expectancy
+fig_map_le = px.choropleth(df_map_data_latest_year_country.dropna(subset=['life_exp']),
+                           locations="iso_alpha",
+                           color="life_exp", # Color by country's actual life expectancy
+                           hover_name="country",
+                           hover_data={"continent": True,
+                                       "life_exp": ":.1f", # Show country's life expectancy
+                                       "pop": ":,.0f", # Show country's population
+                                       "gdp_per_capita": ":,.0f", # Show country's GDP
+                                       "iso_alpha": False},
+                           color_continuous_scale=px.colors.sequential.Plasma,
+                           title=f'Life Expectancy by Country (Year {latest_year_str})', # Title updated to reflect country level
+                           labels={'life_exp': 'Life Exp. (Years)'})
+fig_map_le.show()
+```
+
+### column {width="40%"}
+
+```{python}
+#| tbl-height: 450
+# Use representative_latest_data for the table (now by continent)
+latest_year_df_le_table = representative_latest_data.dropna(subset=['life_exp']).sort_values('life_exp', ascending=False)
+
+if not latest_year_df_le_table.empty:
+    print(latest_year_df_le_table[['continent', 'life_exp']].to_markdown(index=False, floatfmt=".1f"))
+else:
+    print(f"No life expectancy data available for {selected_region_str} in {latest_year_str}.")
+```
+
+## row 
+
+Key Insights on Life Expectancy in Global Continents
+Overall Trend: Observe how life expectancy generally trends upwards across the global continents from `{python} START_YEAR` to `{python} END_YEAR`, reflecting improvements in healthcare and living conditions.
+
+Continent Variation: Note the significant differences in average life expectancy between various continents. Some continents might have seen more rapid improvements or started from different baseline levels.
+
+# Internet Users Analysis
+This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.
+
+## row
+
+::: {.valuebox title="Average Internet Users (Year `{python} latest_year_str`)" color="light" icon="reception-4"}
+
+```{python}
+#| content: valuebox
+# Use representative_latest_data
+print(f"{round(representative_latest_data['internet_users'].mean(), 1)}%")
+```
+
+:::
+
+## row 
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 350
+# Use df_continent_avg
+fig_line_internet = px.line(df_continent_avg.dropna(subset=['internet_users']),
+                            x='year',
+                            y='internet_users',
+                            color='continent', # Color by continent
+                            title=f'Average Internet Users Per 100 Over Time for {selected_region_str} ({period_str})',
+                            labels={'internet_users': 'Average Internet Users (Per 100)'})
+fig_line_internet.show()
+```
+
+
+### column {width="40%"}
+
+```{python}
+#| fig-height: 350
+# Use representative_latest_data (now by continent)
+latest_data_internet_selected = representative_latest_data.dropna(subset=['internet_users'])
+fig_bar_internet = px.bar(latest_data_internet_selected.sort_values('internet_users', ascending=True),
+                          x='internet_users', y='continent', # Y-axis is now continent
+                          title=f'Average Internet Users for {selected_region_str} (Year {latest_year_str})',
+                          orientation='h',
+                          labels={'internet_users': 'Average Internet Users (Per 100)'})
+fig_bar_internet.show()
+```
+
+## row
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 450
+# Choropleth map: Countries colored by their EXACT country-level internet users
+fig_map_internet = px.choropleth(df_map_data_latest_year_country.dropna(subset=['internet_users']),
+                                 locations="iso_alpha",
+                                 color="internet_users", # Color by country's actual internet users
+                                 hover_name="country",
+                                 hover_data={"continent": True,
+                                             "internet_users": ":.1f", # Show country's internet users
+                                             "pop": ":,.0f", # Show country's population
+                                             "gdp_per_capita": ":,.0f", # Show country's GDP
+                                             "iso_alpha": False},
+                                 color_continuous_scale=px.colors.sequential.Blues,
+                                 title=f'Internet Users by Country (Year {latest_year_str})', # Title updated to reflect country level
+                                 labels={'internet_users': 'Internet Users (%)'})
+fig_map_internet.show()
+```
+
+### column {width="40%"}
+
+```{python}
+#| tbl-height: 450
+# Use representative_latest_data (now by continent)
+latest_year_df_internet_table = representative_latest_data.dropna(subset=['internet_users']).sort_values('internet_users', ascending=False)
+
+if not latest_year_df_internet_table.empty:
+    print(latest_year_df_internet_table[['continent', 'internet_users']].to_markdown(index=False, floatfmt=".1f"))
+else:
+    print(f"No internet users data available for {selected_region_str} in {latest_year_str}.")
+```
+
+## row
+
+Key Insights on Internet Penetration in Global Continents
+Growth Trends: Observe the significant increase in average internet users across most of the global continents between `{python} START_YEAR` and `{python} END_YEAR`, highlighting the rapid adoption of digital technologies.
+
+Disparities: Notice any continued disparities in internet penetration among the continents, which could be linked to economic development or infrastructure.
+
+# Life Expectancy vs. Internet Users Analysis
+
+This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`. Observe how these two indicators evolve together over time, often reflecting broader patterns of development and access to information.
+
+```{python}
+#| fig-height: 600
+
+# Use df_continent_avg
+fig_rel_scatter = px.scatter(df_continent_avg.dropna(subset=['life_exp', 'internet_users', 'pop']),
+                             x="internet_users",
+                             y="life_exp",
+                             animation_frame="year",
+                             animation_group="continent",
+                             size="pop", # Size now represents average continent population
+                             color="continent", # Color by continent
+                             hover_name="continent",
+                             size_max=60,
+                             title=f'Average Life Expectancy vs. Internet Users by Year for {selected_region_str} (Bubble size: Average Population, Color: Continent)',
+                             labels={
+                                 "internet_users": "Average Internet Users (Per 100 People)",
+                                 "life_exp": "Average Life Expectancy (Years)",
+                                 "pop": "Average Population"
+                             })
+
+if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.updatemenus:
+    first_updatemenu = fig_rel_scatter.layout.updatemenus[0]
+    if hasattr(first_updatemenu, 'buttons') and first_updatemenu.buttons:
+        first_button = first_updatemenu.buttons[0]
+        if isinstance(first_button.args[1], dict) and 'frame' in first_button.args[1] and 'transition' in first_button.args[1]:
+            first_button.args[1]['frame']['duration'] = 1500
+            first_button.args[1]['transition']['duration'] = 500
+
+fig_rel_scatter.show()
+```
+
+## row
+
+Key Insights on the Relationship in Global Continents
+Correlation: Investigate if there's a visible correlation between increasing average internet usage and rising average life expectancy within global continents over the period.
+
+Outliers: Identify any continents that stand out as outliers in this relationship, and consider potential reasons for their unique development paths.

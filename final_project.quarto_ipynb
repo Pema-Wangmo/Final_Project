@@ -1,0 +1,727 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "---\n",
+        "title: \"Global Development Trends: Life Expectancy and Internet Access (1990-2000)\" \n",
+        "format:\n",
+        "  dashboard:\n",
+        "    orientation: rows\n",
+        "    theme: cosmo\n",
+        "---"
+      ],
+      "id": "77d7c382"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "message": false,
+        "results": "as-is"
+      },
+      "source": [
+        "#| echo: false\n",
+        "#| warning: false\n",
+        "\n",
+        "import pandas as pd\n",
+        "import country_converter as cc\n",
+        "import numpy as np\n",
+        "import plotly.express as px\n",
+        "import itables\n",
+        "\n",
+        "itables.options.showIndex = False \n",
+        "\n",
+        "START_YEAR = 1990\n",
+        "END_YEAR = 2000\n",
+        "TARGET_YEARS = list(range(START_YEAR, END_YEAR + 1))\n",
+        "\n",
+        "def parse_numeric_string(value):\n",
+        "    \"\"\"\n",
+        "    Converts numerical strings like '1.3B', '2.5M', or '1.5K' to numeric values.\n",
+        "    Handles None, NaN, and already numeric values gracefully.\n",
+        "    \"\"\"\n",
+        "    if pd.isna(value) or not isinstance(value, str):\n",
+        "        return value\n",
+        "\n",
+        "    value = value.strip()\n",
+        "\n",
+        "    if value.endswith('B'):\n",
+        "        return float(value[:-1]) * 1_000_000_000\n",
+        "    elif value.endswith('M'):\n",
+        "        return float(value[:-1]) * 1_000_000\n",
+        "    elif value.endswith('K'):\n",
+        "        return float(value[:-1]) * 1_000\n",
+        "    else:\n",
+        "        try:\n",
+        "            return float(value)\n",
+        "        except ValueError:\n",
+        "            return np.nan\n",
+        "\n",
+        "def load_and_process_gapminder_data(start_year, end_year):\n",
+        "\n",
+        "    custom_country_mappings = {\n",
+        "        'East Germany': 'Germany', 'West Germany': 'Germany', 'USSR': 'Russia',\n",
+        "        'Yugoslavia': 'Serbia', 'Netherlands Antilles': 'Netherlands',\n",
+        "        'UAE': 'United Arab Emirates', 'United Arab Emirates': 'United Arab Emirates'\n",
+        "    }\n",
+        "\n",
+        "    data_file_paths = {\n",
+        "        \"pop\": 'data/pop.csv',\n",
+        "        \"life_exp\": 'data/lex.csv',\n",
+        "        \"internet_users\": 'data/internet_users.csv',\n",
+        "    }\n",
+        "\n",
+        "    melted_dataframes = {}\n",
+        "    for indicator_name, filepath in data_file_paths.items():\n",
+        "        try:\n",
+        "            df = pd.read_csv(filepath)\n",
+        "            country_col_name = df.columns[0]\n",
+        "            df[country_col_name] = df[country_col_name].replace(custom_country_mappings)\n",
+        "\n",
+        "            melted_df = df.melt(\n",
+        "                id_vars=country_col_name,\n",
+        "                var_name=\"year\",\n",
+        "                value_name=indicator_name\n",
+        "            ).sort_values([country_col_name, \"year\"])\n",
+        "\n",
+        "            melted_df['year'] = pd.to_numeric(melted_df['year'].astype(str).str.replace('geo_', ''), errors='coerce')\n",
+        "            melted_df.dropna(subset=['year'], inplace=True)\n",
+        "            melted_df['year'] = melted_df['year'].astype(int)\n",
+        "\n",
+        "            melted_df['iso_alpha'] = cc.convert(names=melted_df[country_col_name], to='ISO3', not_found=None)\n",
+        "            melted_df = melted_df.rename(columns={country_col_name: 'country'})\n",
+        "            melted_df.dropna(subset=['iso_alpha', indicator_name], inplace=True)\n",
+        "\n",
+        "            melted_dataframes[indicator_name] = melted_df[['country', 'year', 'iso_alpha', indicator_name]]\n",
+        "        except FileNotFoundError:\n",
+        "            print(f\"Warning: File not found at {filepath}. Skipping {indicator_name}.\")\n",
+        "            melted_dataframes[indicator_name] = pd.DataFrame()\n",
+        "\n",
+        "    if 'pop' not in melted_dataframes or melted_dataframes['pop'].empty:\n",
+        "        print(\"Error: Population data is essential and not loaded. Returning empty DataFrame.\")\n",
+        "        return pd.DataFrame()\n",
+        "\n",
+        "    merged_data = melted_dataframes['pop'].copy()\n",
+        "    merge_cols = ['country', 'year', 'iso_alpha']\n",
+        "\n",
+        "    for indicator_name, df_to_merge in melted_dataframes.items():\n",
+        "        if indicator_name == 'pop':\n",
+        "            continue\n",
+        "        if not df_to_merge.empty:\n",
+        "            merged_data = pd.merge(merged_data, df_to_merge, on=merge_cols, how='outer')\n",
+        "\n",
+        "    merged_data['year'] = merged_data['year'].astype(int, errors='ignore')\n",
+        "    merged_data.dropna(subset=['iso_alpha', 'year'], inplace=True)\n",
+        "\n",
+        "    numeric_indicator_cols = [col for col in data_file_paths.keys() if col in merged_data.columns]\n",
+        "    for col in numeric_indicator_cols:\n",
+        "        merged_data[col] = merged_data[col].astype(str).apply(parse_numeric_string)\n",
+        "\n",
+        "    merged_data['continent'] = cc.convert(names=merged_data['country'], to='continent')\n",
+        "    merged_data.dropna(subset=['continent'], inplace=True)\n",
+        "\n",
+        "    merged_data_filtered = merged_data[\n",
+        "        (merged_data['year'] >= start_year) &\n",
+        "        (merged_data['year'] <= end_year)\n",
+        "    ].copy()\n",
+        "\n",
+        "    return merged_data_filtered\n",
+        "\n",
+        "df_gap_full = load_and_process_gapminder_data(START_YEAR, END_YEAR)\n",
+        "\n",
+        "df_continent_avg = df_gap_full.groupby(['continent', 'year']).agg(\n",
+        "    life_exp=('life_exp', 'mean'),\n",
+        "    internet_users=('internet_users', 'mean'),\n",
+        "    pop=('pop', 'mean')\n",
+        ").reset_index()\n",
+        "\n",
+        "representative_latest_year = df_continent_avg['year'].max() if not df_continent_avg.empty else END_YEAR\n",
+        "representative_latest_data = df_continent_avg[df_continent_avg['year'] == representative_latest_year].copy()\n",
+        "\n",
+        "df_map_data_latest_year_country = df_gap_full[df_gap_full['year'] == representative_latest_year].copy()\n",
+        "\n",
+        "\n",
+        "# Filter df_gap_full for the latest representative year\n",
+        "df_latest_year_countries = df_gap_full[\n",
+        "    df_gap_full['year'] == representative_latest_year\n",
+        "].copy()\n",
+        "\n",
+        "\n",
+        "df_le_highest = df_latest_year_countries.dropna(subset=['life_exp', 'continent']).loc[\n",
+        "    df_latest_year_countries.dropna(subset=['life_exp', 'continent']).groupby('continent')['life_exp'].idxmax()\n",
+        "][['continent', 'country', 'life_exp']].rename(columns={\n",
+        "    'country': 'Highest LE Country',\n",
+        "    'life_exp': 'Highest LE (Years)'\n",
+        "})\n",
+        "\n",
+        "df_le_lowest = df_latest_year_countries.dropna(subset=['life_exp', 'continent']).loc[\n",
+        "    df_latest_year_countries.dropna(subset=['life_exp', 'continent']).groupby('continent')['life_exp'].idxmin()\n",
+        "][['continent', 'country', 'life_exp']].rename(columns={\n",
+        "    'country': 'Lowest LE Country',\n",
+        "    'life_exp': 'Lowest LE (Years)'\n",
+        "})\n",
+        "\n",
+        "df_le_extremes_by_continent = pd.merge(df_le_highest, df_le_lowest, on='continent', how='outer').sort_values('continent')\n",
+        "\n",
+        "df_internet_highest = df_latest_year_countries.dropna(subset=['internet_users', 'continent']).loc[\n",
+        "    df_latest_year_countries.dropna(subset=['internet_users', 'continent']).groupby('continent')['internet_users'].idxmax()\n",
+        "][['continent', 'country', 'internet_users']].rename(columns={\n",
+        "    'country': 'Highest Internet Country',\n",
+        "    'internet_users': 'Highest Internet (%)'\n",
+        "})\n",
+        "\n",
+        "df_internet_lowest = df_latest_year_countries.dropna(subset=['internet_users', 'continent']).loc[\n",
+        "    df_latest_year_countries.dropna(subset=['internet_users', 'continent']).groupby('continent')['internet_users'].idxmin()\n",
+        "][['continent', 'country', 'internet_users']].rename(columns={\n",
+        "    'country': 'Lowest Internet Country',\n",
+        "    'internet_users': 'Lowest Internet (%)'\n",
+        "})\n",
+        "\n",
+        "df_internet_extremes_by_continent = pd.merge(df_internet_highest, df_internet_lowest, on='continent', how='outer').sort_values('continent')\n",
+        "\n",
+        "# Calculate overall statistics for value boxes\n",
+        "avg_life_exp_period = df_continent_avg['life_exp'].mean()\n",
+        "total_pop_period = df_gap_full['pop'].sum()\n",
+        "avg_internet_period = df_continent_avg['internet_users'].mean()\n",
+        "\n",
+        "# Dynamic text for titles\n",
+        "period_str = f\"{START_YEAR}-{END_YEAR}\"\n",
+        "latest_year_str = str(representative_latest_year)\n",
+        "selected_region_str = \"Global Continents\" "
+      ],
+      "id": "c17a7172",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# Home: Global Development Overview\n",
+        "\n",
+        "Welcome to the Global Development Indicators Dashboard! This dashboard provides an interactive exploration of Life Expectancy and Internet Access for all major continents during the period of `{python} period_str`.\n",
+        "\n",
+        "## row\n",
+        "\n",
+        "::: {.valuebox title=\"Average Life Expectancy\" color=\"#2ECC71\" icon=\"heart-pulse\"}"
+      ],
+      "id": "b76fc9f5"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{avg_life_exp_period:.2f} years\")"
+      ],
+      "id": "44522d49",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Total Population (Summed)\" color=\"#3498DB\" icon=\"people-fill\"}"
+      ],
+      "id": "4a7c6116"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "if pd.isna(total_pop_period):\n",
+        "    print(\"N/A\")\n",
+        "else:\n",
+        "    print(f\"{total_pop_period:,.0f}\")"
+      ],
+      "id": "588c280b",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Average Internet Users\" color=\"#9B59B6\" icon=\"wifi\"}"
+      ],
+      "id": "269f6379"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{avg_internet_period:.2f}%\")"
+      ],
+      "id": "6c4c4932",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "## row\n",
+        "\n",
+        "### Column{width=\"50%\"}"
+      ],
+      "id": "46cf064d"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 450
+      },
+      "source": [
+        "fig_map_le = px.choropleth(df_map_data_latest_year_country.dropna(subset=['life_exp']),\n",
+        "                           locations=\"iso_alpha\",\n",
+        "                           color=\"life_exp\", \n",
+        "                           hover_name=\"country\",\n",
+        "                           hover_data={\"continent\": True,\n",
+        "                                       \"life_exp\": \":.1f\",\n",
+        "                                       \"pop\": \":,.0f\", \n",
+        "                                       \"iso_alpha\": False},\n",
+        "                           color_continuous_scale=px.colors.sequential.Plasma,\n",
+        "                           title=f'Life Expectancy by Country (Year {latest_year_str})', \n",
+        "                           labels={'life_exp': 'Life Exp. (Years)'})\n",
+        "fig_map_le.show()"
+      ],
+      "id": "73c2cdc9",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Column{width=\"50%\"}"
+      ],
+      "id": "88dd3253"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 450
+      },
+      "source": [
+        "fig_map_internet = px.choropleth(df_map_data_latest_year_country.dropna(subset=['internet_users']),\n",
+        "                                 locations=\"iso_alpha\",\n",
+        "                                 color=\"internet_users\", \n",
+        "                                 hover_name=\"country\",\n",
+        "                                 hover_data={\"continent\": True,\n",
+        "                                             \"internet_users\": \":.1f\", \n",
+        "                                             \"pop\": \":,.0f\", \n",
+        "                                             \"iso_alpha\": False},\n",
+        "                                 color_continuous_scale=px.colors.sequential.Blues,\n",
+        "                                 title=f'Internet Users by Country (Year {latest_year_str})', \n",
+        "                                 labels={'internet_users': 'Internet Users (%)'})\n",
+        "fig_map_internet.show()"
+      ],
+      "id": "df7bd7f5",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# Life Expectancy Analysis\n",
+        "\n",
+        "This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.\n",
+        "\n",
+        "## Row\n",
+        "\n",
+        "::: {.valuebox title=\"Highest Life Exp. (Year `{python} latest_year_str`)\" color=\"#3498DB\" icon=\"arrow-up-circle-fill\"}"
+      ],
+      "id": "fddd4f31"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['life_exp'].max(), 1)} years\")"
+      ],
+      "id": "a78b43e4",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Average Life Exp. (Year `{python} latest_year_str`)\" color=\"#3498DB\" icon=\"clipboard2-pulse\"}"
+      ],
+      "id": "7bdffbd2"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['life_exp'].mean(), 1)} years\")"
+      ],
+      "id": "142d705a",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Lowest Life Exp. (Year `{python} latest_year_str`)\" color=\"#3498DB\" icon=\"arrow-down-circle-fill\"}"
+      ],
+      "id": "59c08bc4"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['life_exp'].min(), 1)} years\")"
+      ],
+      "id": "c09cabb2",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "## row \n",
+        "\n",
+        "### column {width=\"60%\"}"
+      ],
+      "id": "915ea28e"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 350
+      },
+      "source": [
+        "fig_line_le = px.line(df_continent_avg.dropna(subset=['life_exp']),\n",
+        "                      x='year',\n",
+        "                      y='life_exp',\n",
+        "                      color='continent', \n",
+        "                      title=f'Average Life Expectancy Over Time for {selected_region_str} ({period_str})',\n",
+        "                      labels={'life_exp': 'Average Life Expectancy (Years)'})\n",
+        "fig_line_le.show()"
+      ],
+      "id": "0fd1a469",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### column {width=\"40%\"}"
+      ],
+      "id": "9b059cab"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 350
+      },
+      "source": [
+        "fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']), x='life_exp',\n",
+        "                           nbins=len(representative_latest_data['continent'].unique()) if not representative_latest_data.empty else 10, \n",
+        "                           title=f'Distribution of Average Life Expectancy in {selected_region_str} (Year {latest_year_str})',\n",
+        "                           labels={'life_exp': 'Average Life Expectancy (Years)'})\n",
+        "fig_hist_le.show()"
+      ],
+      "id": "d7511e80",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## row "
+      ],
+      "id": "027926b2"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "tbl-height": 400
+      },
+      "source": [
+        "le_table_title = f\"Life Expectancy Extremes by Continent (Year {latest_year_str})\"\n",
+        "\n",
+        "if not df_le_extremes_by_continent.empty:\n",
+        "    # Set the caption option before displaying\n",
+        "    itables.options.caption = le_table_title\n",
+        "    # Display the DataFrame (itables will intercept this)\n",
+        "    display(df_le_extremes_by_continent.round(1))\n",
+        "    # IMPORTANT: Reset the caption option if other tables follow without captions\n",
+        "    itables.options.caption = None\n",
+        "else:\n",
+        "    print(\"No data for life expectancy extremes by continent.\")"
+      ],
+      "id": "a734e678",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## row \n",
+        "\n",
+        "**Key observations**\n",
+        "\n",
+        "From 1990 to 2000, Africa consistently showed the lowest average life expectancy among continents, while Europe maintained the highest average life expectancy. Among individual countries, the Central African Republic registered the lowest average life expectancy, whereas Japan recorded the highest. In the year 2000, the highest frequency of average life expectancy among global continents fell between 65 and 70 years.\n",
+        "\n",
+        "# Internet Users Analysis\n",
+        "\n",
+        "This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.\n",
+        "\n",
+        "## row\n",
+        "\n",
+        "::: {.valuebox title=\"Highest Internet Users (Year `{python} latest_year_str`)\" color=\"light\" icon=\"caret-up-square-fill\"}"
+      ],
+      "id": "0a4cc52b"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['internet_users'].max(), 1)}%\")"
+      ],
+      "id": "07019477",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Average Internet Users (Year `{python} latest_year_str`)\" color=\"light\" icon=\"reception-4\"}"
+      ],
+      "id": "12cbbd35"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['internet_users'].mean(), 1)}%\")"
+      ],
+      "id": "a1e0986a",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "::: {.valuebox title=\"Lowest Internet Users (Year `{python} latest_year_str`)\" color=\"light\" icon=\"caret-down-square-fill\"}"
+      ],
+      "id": "59d10220"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "content": "valuebox"
+      },
+      "source": [
+        "print(f\"{round(representative_latest_data['internet_users'].min(), 1)}%\")"
+      ],
+      "id": "65e0cb7c",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        ":::\n",
+        "\n",
+        "## row \n",
+        "\n",
+        "### column {width=\"60%\"}"
+      ],
+      "id": "05cd2db5"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 350
+      },
+      "source": [
+        "fig_line_internet = px.line(df_continent_avg.dropna(subset=['internet_users']),\n",
+        "                            x='year',\n",
+        "                            y='internet_users',\n",
+        "                            color='continent',\n",
+        "                            title=f'Average Internet Users Per 100 Over Time for {selected_region_str} ({period_str})',\n",
+        "                            labels={'internet_users': 'Average Internet Users (Per 100)'})\n",
+        "fig_line_internet.show()"
+      ],
+      "id": "29b1b03e",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### column {width=\"40%\"}"
+      ],
+      "id": "423c9d2e"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 350
+      },
+      "source": [
+        "latest_data_internet_selected = representative_latest_data.dropna(subset=['internet_users'])\n",
+        "fig_bar_internet = px.bar(latest_data_internet_selected.sort_values('internet_users', ascending=True),\n",
+        "                          x='internet_users', y='continent', \n",
+        "                          title=f'Average Internet Users for {selected_region_str} (Year {latest_year_str})',\n",
+        "                          orientation='h',\n",
+        "                          labels={'internet_users': 'Average Internet Users (Per 100)'})\n",
+        "fig_bar_internet.show()"
+      ],
+      "id": "12d585d1",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## row"
+      ],
+      "id": "63395d1e"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "tbl-height": 400
+      },
+      "source": [
+        "internet_table_title = f\"Internet Users Extremes by Continent (Year {latest_year_str})\"\n",
+        "\n",
+        "if not df_internet_extremes_by_continent.empty:\n",
+        "    # Set the caption option before displaying\n",
+        "    itables.options.caption = internet_table_title\n",
+        "    # Display the DataFrame (itables will intercept this)\n",
+        "    display(df_internet_extremes_by_continent.round(1))\n",
+        "    # IMPORTANT: Reset the caption option\n",
+        "    itables.options.caption = None\n",
+        "else:\n",
+        "    print(\"No data for internet users extremes by continent.\")"
+      ],
+      "id": "a7fcd8d3",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## row\n",
+        "\n",
+        "**Key observation**\n",
+        "\n",
+        "From 1990 to 2000, all continents experienced growth in internet users, though Africa consistently showed the lowest average internet penetration, while Europe maintained the highest average. Among individual countries, the Congo Democratic Republic and North Korea registered the lowest average internet users, whereas Norway recorded the highest.\n",
+        "\n",
+        "# Life Expectancy vs. Internet Users Analysis\n",
+        "\n",
+        "This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`."
+      ],
+      "id": "1edc4976"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "fig-height": 600
+      },
+      "source": [
+        "fig_rel_scatter = px.scatter(df_continent_avg.dropna(subset=['life_exp', 'internet_users', 'pop']),\n",
+        "                             x=\"internet_users\",\n",
+        "                             y=\"life_exp\",\n",
+        "                             animation_frame=\"year\",\n",
+        "                             animation_group=\"continent\",\n",
+        "                             size=\"pop\", \n",
+        "                             color=\"continent\", \n",
+        "                             hover_name=\"continent\",\n",
+        "                             size_max=60,\n",
+        "                             title=f'Average Life Expectancy vs. Internet Users by Year for {selected_region_str} (Bubble size: Average Population, Color: Continent)',\n",
+        "                             labels={\n",
+        "                                 \"internet_users\": \"Average Internet Users (Per 100 People)\",\n",
+        "                                 \"life_exp\": \"Average Life Expectancy (Years)\",\n",
+        "                                 \"pop\": \"Average Population\"\n",
+        "                             })\n",
+        "\n",
+        "if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.updatemenus:\n",
+        "    first_updatemenu = fig_rel_scatter.layout.updatemenus[0]\n",
+        "    if hasattr(first_updatemenu, 'buttons') and first_updatemenu.buttons:\n",
+        "        first_button = first_updatemenu.buttons[0]\n",
+        "        if isinstance(first_button.args[1], dict) and 'frame' in first_button.args[1] and 'transition' in first_button.args[1]:\n",
+        "            first_button.args[1]['frame']['duration'] = 1500\n",
+        "            first_button.args[1]['transition']['duration'] = 500\n",
+        "\n",
+        "fig_rel_scatter.show()"
+      ],
+      "id": "86bb0267",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## row\n",
+        "\n",
+        "**Key observation**\n",
+        "\n",
+        "From 1990 to 2000, Europe experienced significant growth in average internet users and maintained the highest average life expectancy. In contrast, Africa displayed minimal development in internet usage and consistently had the lowest average life expectancy. Asia, America, and Oceania showed moderate progress in internet penetration and life expectancy during this period. "
+      ],
+      "id": "49e12fd6"
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "name": "python3",
+      "language": "python",
+      "display_name": "Python 3 (ipykernel)",
+      "path": "C:\\Users\\user.JDWNRH\\AppData\\Roaming\\Python\\share\\jupyter\\kernels\\python3"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}

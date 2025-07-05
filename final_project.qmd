@@ -1,0 +1,475 @@
+---
+title: "Global Development Trends: Life Expectancy and Internet Access (1990-2000)" 
+format:
+  dashboard:
+    orientation: rows
+    theme: cosmo
+---
+
+```{python}
+#| echo: false
+#| message: false
+#| warning: false
+#| results: as-is
+
+import pandas as pd
+import country_converter as cc
+import numpy as np
+import plotly.express as px
+import itables
+
+itables.options.showIndex = False 
+
+START_YEAR = 1990
+END_YEAR = 2000
+TARGET_YEARS = list(range(START_YEAR, END_YEAR + 1))
+
+def parse_numeric_string(value):
+    """
+    Converts numerical strings like '1.3B', '2.5M', or '1.5K' to numeric values.
+    Handles None, NaN, and already numeric values gracefully.
+    """
+    if pd.isna(value) or not isinstance(value, str):
+        return value
+
+    value = value.strip()
+
+    if value.endswith('B'):
+        return float(value[:-1]) * 1_000_000_000
+    elif value.endswith('M'):
+        return float(value[:-1]) * 1_000_000
+    elif value.endswith('K'):
+        return float(value[:-1]) * 1_000
+    else:
+        try:
+            return float(value)
+        except ValueError:
+            return np.nan
+
+def load_and_process_gapminder_data(start_year, end_year):
+
+    custom_country_mappings = {
+        'East Germany': 'Germany', 'West Germany': 'Germany', 'USSR': 'Russia',
+        'Yugoslavia': 'Serbia', 'Netherlands Antilles': 'Netherlands',
+        'UAE': 'United Arab Emirates', 'United Arab Emirates': 'United Arab Emirates'
+    }
+
+    data_file_paths = {
+        "pop": 'data/pop.csv',
+        "life_exp": 'data/lex.csv',
+        "internet_users": 'data/internet_users.csv',
+    }
+
+    melted_dataframes = {}
+    for indicator_name, filepath in data_file_paths.items():
+        try:
+            df = pd.read_csv(filepath)
+            country_col_name = df.columns[0]
+            df[country_col_name] = df[country_col_name].replace(custom_country_mappings)
+
+            melted_df = df.melt(
+                id_vars=country_col_name,
+                var_name="year",
+                value_name=indicator_name
+            ).sort_values([country_col_name, "year"])
+
+            melted_df['year'] = pd.to_numeric(melted_df['year'].astype(str).str.replace('geo_', ''), errors='coerce')
+            melted_df.dropna(subset=['year'], inplace=True)
+            melted_df['year'] = melted_df['year'].astype(int)
+
+            melted_df['iso_alpha'] = cc.convert(names=melted_df[country_col_name], to='ISO3', not_found=None)
+            melted_df = melted_df.rename(columns={country_col_name: 'country'})
+            melted_df.dropna(subset=['iso_alpha', indicator_name], inplace=True)
+
+            melted_dataframes[indicator_name] = melted_df[['country', 'year', 'iso_alpha', indicator_name]]
+        except FileNotFoundError:
+            print(f"Warning: File not found at {filepath}. Skipping {indicator_name}.")
+            melted_dataframes[indicator_name] = pd.DataFrame()
+
+    if 'pop' not in melted_dataframes or melted_dataframes['pop'].empty:
+        print("Error: Population data is essential and not loaded. Returning empty DataFrame.")
+        return pd.DataFrame()
+
+    merged_data = melted_dataframes['pop'].copy()
+    merge_cols = ['country', 'year', 'iso_alpha']
+
+    for indicator_name, df_to_merge in melted_dataframes.items():
+        if indicator_name == 'pop':
+            continue
+        if not df_to_merge.empty:
+            merged_data = pd.merge(merged_data, df_to_merge, on=merge_cols, how='outer')
+
+    merged_data['year'] = merged_data['year'].astype(int, errors='ignore')
+    merged_data.dropna(subset=['iso_alpha', 'year'], inplace=True)
+
+    numeric_indicator_cols = [col for col in data_file_paths.keys() if col in merged_data.columns]
+    for col in numeric_indicator_cols:
+        merged_data[col] = merged_data[col].astype(str).apply(parse_numeric_string)
+
+    merged_data['continent'] = cc.convert(names=merged_data['country'], to='continent')
+    merged_data.dropna(subset=['continent'], inplace=True)
+
+    merged_data_filtered = merged_data[
+        (merged_data['year'] >= start_year) &
+        (merged_data['year'] <= end_year)
+    ].copy()
+
+    return merged_data_filtered
+
+df_gap_full = load_and_process_gapminder_data(START_YEAR, END_YEAR)
+
+df_continent_avg = df_gap_full.groupby(['continent', 'year']).agg(
+    life_exp=('life_exp', 'mean'),
+    internet_users=('internet_users', 'mean'),
+    pop=('pop', 'mean')
+).reset_index()
+
+representative_latest_year = df_continent_avg['year'].max() if not df_continent_avg.empty else END_YEAR
+representative_latest_data = df_continent_avg[df_continent_avg['year'] == representative_latest_year].copy()
+
+df_map_data_latest_year_country = df_gap_full[df_gap_full['year'] == representative_latest_year].copy()
+
+
+# Filter df_gap_full for the latest representative year
+df_latest_year_countries = df_gap_full[
+    df_gap_full['year'] == representative_latest_year
+].copy()
+
+
+df_le_highest = df_latest_year_countries.dropna(subset=['life_exp', 'continent']).loc[
+    df_latest_year_countries.dropna(subset=['life_exp', 'continent']).groupby('continent')['life_exp'].idxmax()
+][['continent', 'country', 'life_exp']].rename(columns={
+    'country': 'Highest LE Country',
+    'life_exp': 'Highest LE (Years)'
+})
+
+df_le_lowest = df_latest_year_countries.dropna(subset=['life_exp', 'continent']).loc[
+    df_latest_year_countries.dropna(subset=['life_exp', 'continent']).groupby('continent')['life_exp'].idxmin()
+][['continent', 'country', 'life_exp']].rename(columns={
+    'country': 'Lowest LE Country',
+    'life_exp': 'Lowest LE (Years)'
+})
+
+df_le_extremes_by_continent = pd.merge(df_le_highest, df_le_lowest, on='continent', how='outer').sort_values('continent')
+
+df_internet_highest = df_latest_year_countries.dropna(subset=['internet_users', 'continent']).loc[
+    df_latest_year_countries.dropna(subset=['internet_users', 'continent']).groupby('continent')['internet_users'].idxmax()
+][['continent', 'country', 'internet_users']].rename(columns={
+    'country': 'Highest Internet Country',
+    'internet_users': 'Highest Internet (%)'
+})
+
+df_internet_lowest = df_latest_year_countries.dropna(subset=['internet_users', 'continent']).loc[
+    df_latest_year_countries.dropna(subset=['internet_users', 'continent']).groupby('continent')['internet_users'].idxmin()
+][['continent', 'country', 'internet_users']].rename(columns={
+    'country': 'Lowest Internet Country',
+    'internet_users': 'Lowest Internet (%)'
+})
+
+df_internet_extremes_by_continent = pd.merge(df_internet_highest, df_internet_lowest, on='continent', how='outer').sort_values('continent')
+
+# Calculate overall statistics for value boxes
+avg_life_exp_period = df_continent_avg['life_exp'].mean()
+total_pop_period = df_gap_full['pop'].sum()
+avg_internet_period = df_continent_avg['internet_users'].mean()
+
+# Dynamic text for titles
+period_str = f"{START_YEAR}-{END_YEAR}"
+latest_year_str = str(representative_latest_year)
+selected_region_str = "Global Continents" 
+```
+
+# Home: Global Development Overview
+
+Welcome to the Global Development Indicators Dashboard! This dashboard provides an interactive exploration of Life Expectancy and Internet Access for all major continents during the period of `{python} period_str`.
+
+## row
+
+::: {.valuebox title="Average Life Expectancy" color="#2ECC71" icon="heart-pulse"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_life_exp_period:.2f} years")
+```
+
+:::
+
+::: {.valuebox title="Total Population (Summed)" color="#3498DB" icon="people-fill"}
+
+```{python}
+#| content: valuebox
+if pd.isna(total_pop_period):
+    print("N/A")
+else:
+    print(f"{total_pop_period:,.0f}")
+```
+
+:::
+
+::: {.valuebox title="Average Internet Users" color="#9B59B6" icon="wifi"}
+
+```{python}
+#| content: valuebox
+print(f"{avg_internet_period:.2f}%")
+```
+
+:::
+
+## row
+
+### Column{width="50%"}
+
+```{python}
+#| fig-height: 450
+
+fig_map_le = px.choropleth(df_map_data_latest_year_country.dropna(subset=['life_exp']),
+                           locations="iso_alpha",
+                           color="life_exp", 
+                           hover_name="country",
+                           hover_data={"continent": True,
+                                       "life_exp": ":.1f",
+                                       "pop": ":,.0f", 
+                                       "iso_alpha": False},
+                           color_continuous_scale=px.colors.sequential.Plasma,
+                           title=f'Life Expectancy by Country (Year {latest_year_str})', 
+                           labels={'life_exp': 'Life Exp. (Years)'})
+fig_map_le.show()
+```
+
+### Column{width="50%"}
+
+```{python}
+#| fig-height: 450
+
+fig_map_internet = px.choropleth(df_map_data_latest_year_country.dropna(subset=['internet_users']),
+                                 locations="iso_alpha",
+                                 color="internet_users", 
+                                 hover_name="country",
+                                 hover_data={"continent": True,
+                                             "internet_users": ":.1f", 
+                                             "pop": ":,.0f", 
+                                             "iso_alpha": False},
+                                 color_continuous_scale=px.colors.sequential.Blues,
+                                 title=f'Internet Users by Country (Year {latest_year_str})', 
+                                 labels={'internet_users': 'Internet Users (%)'})
+fig_map_internet.show()
+```
+
+# Life Expectancy Analysis
+
+This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.
+
+## Row
+
+::: {.valuebox title="Highest Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="arrow-up-circle-fill"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['life_exp'].max(), 1)} years")
+```
+
+:::
+
+::: {.valuebox title="Average Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="clipboard2-pulse"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['life_exp'].mean(), 1)} years")
+```
+
+:::
+
+::: {.valuebox title="Lowest Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="arrow-down-circle-fill"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
+```
+
+:::
+
+## row 
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 350
+
+fig_line_le = px.line(df_continent_avg.dropna(subset=['life_exp']),
+                      x='year',
+                      y='life_exp',
+                      color='continent', 
+                      title=f'Average Life Expectancy Over Time for {selected_region_str} ({period_str})',
+                      labels={'life_exp': 'Average Life Expectancy (Years)'})
+fig_line_le.show()
+```
+
+### column {width="40%"}
+
+```{python}
+#| fig-height: 350
+
+fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']), x='life_exp',
+                           nbins=len(representative_latest_data['continent'].unique()) if not representative_latest_data.empty else 10, 
+                           title=f'Distribution of Average Life Expectancy in {selected_region_str} (Year {latest_year_str})',
+                           labels={'life_exp': 'Average Life Expectancy (Years)'})
+fig_hist_le.show()
+```
+
+## row 
+
+```{python}
+#| tbl-height: 400
+
+le_table_title = f"Life Expectancy Extremes by Continent (Year {latest_year_str})"
+
+if not df_le_extremes_by_continent.empty:
+    # Set the caption option before displaying
+    itables.options.caption = le_table_title
+    # Display the DataFrame (itables will intercept this)
+    display(df_le_extremes_by_continent.round(1))
+    # IMPORTANT: Reset the caption option if other tables follow without captions
+    itables.options.caption = None
+else:
+    print("No data for life expectancy extremes by continent.")
+```
+
+## row 
+
+**Key observations**
+
+From 1990 to 2000, Africa consistently showed the lowest average life expectancy among continents, while Europe maintained the highest average life expectancy. Among individual countries, the Central African Republic registered the lowest average life expectancy, whereas Japan recorded the highest. In the year 2000, the highest frequency of average life expectancy among global continents fell between 65 and 70 years.
+
+# Internet Users Analysis
+
+This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.
+
+## row
+
+::: {.valuebox title="Highest Internet Users (Year `{python} latest_year_str`)" color="light" icon="caret-up-square-fill"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['internet_users'].max(), 1)}%")
+```
+
+:::
+
+::: {.valuebox title="Average Internet Users (Year `{python} latest_year_str`)" color="light" icon="reception-4"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['internet_users'].mean(), 1)}%")
+```
+
+:::
+
+::: {.valuebox title="Lowest Internet Users (Year `{python} latest_year_str`)" color="light" icon="caret-down-square-fill"}
+
+```{python}
+#| content: valuebox
+
+print(f"{round(representative_latest_data['internet_users'].min(), 1)}%")
+```
+
+:::
+
+## row 
+
+### column {width="60%"}
+
+```{python}
+#| fig-height: 350
+
+fig_line_internet = px.line(df_continent_avg.dropna(subset=['internet_users']),
+                            x='year',
+                            y='internet_users',
+                            color='continent',
+                            title=f'Average Internet Users Per 100 Over Time for {selected_region_str} ({period_str})',
+                            labels={'internet_users': 'Average Internet Users (Per 100)'})
+fig_line_internet.show()
+```
+
+
+### column {width="40%"}
+
+```{python}
+#| fig-height: 350
+
+latest_data_internet_selected = representative_latest_data.dropna(subset=['internet_users'])
+fig_bar_internet = px.bar(latest_data_internet_selected.sort_values('internet_users', ascending=True),
+                          x='internet_users', y='continent', 
+                          title=f'Average Internet Users for {selected_region_str} (Year {latest_year_str})',
+                          orientation='h',
+                          labels={'internet_users': 'Average Internet Users (Per 100)'})
+fig_bar_internet.show()
+```
+
+## row
+
+```{python}
+#| tbl-height: 400
+
+internet_table_title = f"Internet Users Extremes by Continent (Year {latest_year_str})"
+
+if not df_internet_extremes_by_continent.empty:
+    # Set the caption option before displaying
+    itables.options.caption = internet_table_title
+    # Display the DataFrame (itables will intercept this)
+    display(df_internet_extremes_by_continent.round(1))
+    # IMPORTANT: Reset the caption option
+    itables.options.caption = None
+else:
+    print("No data for internet users extremes by continent.")
+```
+
+## row
+
+**Key observation**
+
+From 1990 to 2000, all continents experienced growth in internet users, though Africa consistently showed the lowest average internet penetration, while Europe maintained the highest average. Among individual countries, the Congo Democratic Republic and North Korea registered the lowest average internet users, whereas Norway recorded the highest.
+
+# Life Expectancy vs. Internet Users Analysis
+
+This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`.
+
+```{python}
+#| fig-height: 600
+
+fig_rel_scatter = px.scatter(df_continent_avg.dropna(subset=['life_exp', 'internet_users', 'pop']),
+                             x="internet_users",
+                             y="life_exp",
+                             animation_frame="year",
+                             animation_group="continent",
+                             size="pop", 
+                             color="continent", 
+                             hover_name="continent",
+                             size_max=60,
+                             title=f'Average Life Expectancy vs. Internet Users by Year for {selected_region_str} (Bubble size: Average Population, Color: Continent)',
+                             labels={
+                                 "internet_users": "Average Internet Users (Per 100 People)",
+                                 "life_exp": "Average Life Expectancy (Years)",
+                                 "pop": "Average Population"
+                             })
+
+if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.updatemenus:
+    first_updatemenu = fig_rel_scatter.layout.updatemenus[0]
+    if hasattr(first_updatemenu, 'buttons') and first_updatemenu.buttons:
+        first_button = first_updatemenu.buttons[0]
+        if isinstance(first_button.args[1], dict) and 'frame' in first_button.args[1] and 'transition' in first_button.args[1]:
+            first_button.args[1]['frame']['duration'] = 1500
+            first_button.args[1]['transition']['duration'] = 500
+
+fig_rel_scatter.show()
+```
+
+## row
+
+**Key observation**
+
+From 1990 to 2000, Europe experienced significant growth in average internet users and maintained the highest average life expectancy. In contrast, Africa displayed minimal development in internet usage and consistently had the lowest average life expectancy. Asia, America, and Oceania showed moderate progress in internet penetration and life expectancy during this period. 
