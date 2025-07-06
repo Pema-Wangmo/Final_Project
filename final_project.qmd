@@ -295,7 +295,7 @@ print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
 
 ## row{height="420px"}
 
-### column{width="600"}
+### column
 
 ```{python}
 
@@ -322,7 +322,7 @@ fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']
 fig_hist_le.show()
 ```
 
-## row{height="200px"}
+## row{height="300px"}
 
 ### column
 
@@ -342,7 +342,7 @@ else:
     print("No data for life expectancy extremes by continent.")
 ```
 
-## row
+## row {height="100px"}
 
 ### column
 
@@ -420,7 +420,7 @@ fig_bar_internet = px.bar(latest_data_internet_selected.sort_values('internet_us
 fig_bar_internet.show()
 ```
 
-## row{height="450px"}
+## row{height="300px"}
 
 ### column
 
@@ -440,7 +440,7 @@ else:
     print("No data for internet users extremes by continent.")
 ```
 
-## row
+## row{height="100px"}
 
 ### column
 
@@ -456,7 +456,6 @@ This section explores the dynamic relationship between a continent's average lif
 
 ## row{height="650px"}
 
-### column{width="70%"}
 
 ```{python}
 #| fig-height: 600
@@ -488,7 +487,7 @@ if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.upd
 fig_rel_scatter.show()
 ```
 
-### column{width="30%"}
+## row{height="100px"}
 
 **Key observation**
 
