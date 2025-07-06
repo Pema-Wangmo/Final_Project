@@ -456,7 +456,7 @@ This section explores the dynamic relationship between a continent's average lif
 
 ## row{height="650px"}
 
-### column{width="80%"}
+### column{width="70%"}
 
 ```{python}
 #| fig-height: 600
@@ -488,7 +488,7 @@ if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.upd
 fig_rel_scatter.show()
 ```
 
-### column{width="20%"}
+### column{width="30%"}
 
 **Key observation**
 
