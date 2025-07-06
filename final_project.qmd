@@ -183,7 +183,7 @@ selected_region_str = "Global Continents"
 
 Welcome to the Global Development Indicators Dashboard! This dashboard provides an interactive exploration of Life Expectancy and Internet Access for all major continents during the period of `{python} period_str`.
 
-## row{height="150px"}
+## row{height="100px"}
 
 ::: {.valuebox title="Average Life Expectancy" color="#2ECC71" icon="heart-pulse"}
 
@@ -215,7 +215,7 @@ print(f"{avg_internet_period:.2f}%")
 
 :::
 
-## row{height="420px"} 
+## row{height="350px"} 
 
 ### Column{width="50%"}
 
@@ -293,7 +293,7 @@ print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
 
 :::
 
-## row{height="420px"}
+## row{height="350px"}
 
 ### column
 
@@ -344,8 +344,6 @@ else:
 
 ## row {height="100px"}
 
-### column
-
 **Key observations**
 
 From 1990 to 2000, Africa consistently showed the lowest average life expectancy among continents, while Europe maintained the highest average life expectancy. Among individual countries, the Central African Republic registered the lowest average life expectancy, whereas Japan recorded the highest. In the year 2000, the highest frequency of average life expectancy among global continents fell between 65 and 70 years.
@@ -356,7 +354,7 @@ From 1990 to 2000, Africa consistently showed the lowest average life expectancy
 
 This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.
 
-## row{height="150px"}
+## row{height="100px"}
 
 ::: {.valuebox title="Highest Internet Users (Year `{python} latest_year_str`)" color="light" icon="caret-up-square-fill"}
 
@@ -388,7 +386,7 @@ print(f"{round(representative_latest_data['internet_users'].min(), 1)}%")
 
 :::
 
-## row{height="420px"}
+## row{height="350px"}
 
 ### column
 
@@ -442,8 +440,6 @@ else:
 
 ## row{height="100px"}
 
-### column
-
 **Key observation**
 
 From 1990 to 2000, all continents experienced growth in internet users, though Africa consistently showed the lowest average internet penetration, while Europe maintained the highest average. Among individual countries, the Congo Democratic Republic and North Korea registered the lowest average internet users, whereas Norway recorded the highest.
@@ -454,7 +450,7 @@ From 1990 to 2000, all continents experienced growth in internet users, though A
 
 This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`.
 
-## row{height="650px"}
+## row{height="400px"}
 
 
 ```{python}
