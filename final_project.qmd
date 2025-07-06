@@ -183,7 +183,7 @@ selected_region_str = "Global Continents"
 
 Welcome to the Global Development Indicators Dashboard! This dashboard provides an interactive exploration of Life Expectancy and Internet Access for all major continents during the period of `{python} period_str`.
 
-## row
+## row{height="150px"}
 
 ::: {.valuebox title="Average Life Expectancy" color="#2ECC71" icon="heart-pulse"}
 
@@ -215,7 +215,7 @@ print(f"{avg_internet_period:.2f}%")
 
 :::
 
-## row 
+## row{height="420px"} 
 
 ### Column{width="50%"}
 
@@ -257,11 +257,11 @@ fig_map_internet.show()
 
 # Life Expectancy Analysis
 
-## row{height="10%"}
+## row
 
 This section provides a detailed analysis of Life Expectancy, a key health-related development indicator, focusing on data for global continents during `{python} period_str`.
 
-## row{height="15%"}
+## row{height="100px"}
 
 ::: {.valuebox title="Highest Life Exp. (Year `{python} latest_year_str`)" color="#3498DB" icon="arrow-up-circle-fill"}
 
@@ -293,23 +293,24 @@ print(f"{round(representative_latest_data['life_exp'].min(), 1)} years")
 
 :::
 
-## row{height="40%"}
+## row{height="420px"}
 
-### column {width="60%"}
+### column{width="600"}
 
 ```{python}
-#| fig-height: 350
 
 fig_line_le = px.line(df_continent_avg.dropna(subset=['life_exp']),
                       x='year',
                       y='life_exp',
-                      color='continent', 
-                      title=f'Average Life Expectancy Over Time for {selected_region_str} ({period_str})',
-                      labels={'life_exp': 'Average Life Expectancy (Years)'})
+                      color='continent',
+                      title=f'Avg Life Exp for{selected_region_str} ({period_str})',
+                      labels={'life_exp': 'Average Life Expectancy (Years)'}
+                      )
+
 fig_line_le.show()
 ```
 
-### column {width="40%"}
+### column
 
 ```{python}
 #| fig-height: 350
@@ -321,9 +322,9 @@ fig_hist_le = px.histogram(representative_latest_data.dropna(subset=['life_exp']
 fig_hist_le.show()
 ```
 
-## row{height="30%"}
+## row{height="200px"}
 
-### column{width="60%"}
+### column
 
 ```{python}
 #| tbl-height: 400
@@ -341,7 +342,9 @@ else:
     print("No data for life expectancy extremes by continent.")
 ```
 
-### column{width="40%"}
+## row
+
+### column
 
 **Key observations**
 
@@ -349,11 +352,11 @@ From 1990 to 2000, Africa consistently showed the lowest average life expectancy
 
 # Internet Users Analysis
 
-## row {height="10%"}
+## row
 
 This section delves into the spread of digital connectivity across global continents, focusing on the percentage of the population using the internet for data in `{python} period_str`.
 
-## row{height="15%"}
+## row{height="150px"}
 
 ::: {.valuebox title="Highest Internet Users (Year `{python} latest_year_str`)" color="light" icon="caret-up-square-fill"}
 
@@ -385,24 +388,25 @@ print(f"{round(representative_latest_data['internet_users'].min(), 1)}%")
 
 :::
 
-## row{height="45%"}
+## row{height="420px"}
 
-### column {width="60%"}
+### column
 
 ```{python}
 #| fig-height: 350
 
 fig_line_internet = px.line(df_continent_avg.dropna(subset=['internet_users']),
-                            x='year',
-                            y='internet_users',
-                            color='continent',
-                            title=f'Average Internet Users Per 100 Over Time for {selected_region_str} ({period_str})',
-                            labels={'internet_users': 'Average Internet Users (Per 100)'})
+                             x='year',
+                             y='internet_users',
+                             color='continent',
+                             title=f'Avg Int Users Per 100 for {selected_region_str} ({period_str})',
+                             labels={'internet_users': 'Average Internet Users (Per 100)'})
+
 fig_line_internet.show()
 ```
 
 
-### column {width="40%"}
+### column
 
 ```{python}
 #| fig-height: 350
@@ -416,9 +420,9 @@ fig_bar_internet = px.bar(latest_data_internet_selected.sort_values('internet_us
 fig_bar_internet.show()
 ```
 
-## row{height="30%"}
+## row{height="450px"}
 
-### column{width="60%"}
+### column
 
 ```{python}
 #| tbl-height: 400
@@ -426,17 +430,19 @@ fig_bar_internet.show()
 internet_table_title = f"Internet Users Extremes by Continent (Year {latest_year_str})"
 
 if not df_internet_extremes_by_continent.empty:
-    # Set the caption option before displaying
+
     itables.options.caption = internet_table_title
-    # Display the DataFrame (itables will intercept this)
+
     display(df_internet_extremes_by_continent.round(1))
-    # IMPORTANT: Reset the caption option
+
     itables.options.caption = None
 else:
     print("No data for internet users extremes by continent.")
 ```
 
-### column{width="40%"}
+## row
+
+### column
 
 **Key observation**
 
@@ -444,13 +450,13 @@ From 1990 to 2000, all continents experienced growth in internet users, though A
 
 # Life Expectancy vs. Internet Users Analysis
 
-## row{height="10%"}
+## row
 
 This section explores the dynamic relationship between a continent's average life expectancy and its average internet penetration for global continents during the years `{python} period_str`.
 
-## row{height="80%"}
+## row{height="650px"}
 
-### column{width="70%"}
+### column{width="80%"}
 
 ```{python}
 #| fig-height: 600
@@ -482,7 +488,7 @@ if hasattr(fig_rel_scatter.layout, 'updatemenus') and fig_rel_scatter.layout.upd
 fig_rel_scatter.show()
 ```
 
-### column{width="30%"}
+### column{width="20%"}
 
 **Key observation**
 
